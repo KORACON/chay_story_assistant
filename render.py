@@ -33,9 +33,9 @@ ASSET_TIPS_BACK_BG = ASSETS_DIR / "Бэк Чаевые.png"
 # -------------------------
 # Цвета
 # -------------------------
-ORANGE = (0xF5 / 255, 0x70 / 255, 0x44 / 255)  # #F6763C
-CREAM = (0xFE / 255, 0xF6 / 255, 0xE9 / 255)   # #F4EFE8
-LINE = (0xFE / 255, 0xF6 / 255, 0xE9 / 255)    # #C1BAB1
+ORANGE = (0xF6 / 255, 0x76 / 255, 0x3C / 255)  # #F6763C
+CREAM = (0xF4 / 255, 0xEF / 255, 0xE8 / 255)   # #F4EFE8
+LINE = (0xC1 / 255, 0xBA / 255, 0xB1 / 255)    # #C1BAB1
 
 QR_BG_HEX = "FEF6E9"
 QR_FG_HEX = "231F20"
@@ -501,7 +501,9 @@ def make_pdf_products_two_sides(fonts: Fonts, name: str, price: int, hours: int)
     buff, c = pdf_with_background(w, h, ASSET_PRODUCTS_BG)
 
     # FRONT
-    draw_brand_ci(c, fonts, w, y=140, size=36)
+    # Бренд переносим выше (зона под верхним краем, как на макете)
+    brand_y = h - 135
+    draw_brand_ci(c, fonts, w, y=brand_y, size=48)
 
     size_name, lines_name = fit_text(name, fonts.bold, max_size=72, min_size=34, max_width=w - 140, max_lines=2)
     draw_centered_multiline(c, lines_name, fonts.bold, size_name, w / 2, 355, CREAM, line_height=1.15)
@@ -533,12 +535,15 @@ def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: int) -> byt
     w, h = img_size(ASSET_TEA_BANK_BG)
     buff, c = pdf_with_background(w, h, ASSET_TEA_BANK_BG)
 
+    # ---------- Бренд (ЧАЙНАЯ ИСТОРИЯ) ВВЕРХУ, увеличен
+    draw_brand_ci(c, fonts, w, y=1510, size=92)
+
     # ---------- Категория (1 строка, максимально крупно)
     cat = category_from_price(price)
     size_cat, lines_cat = fit_text_in_box(
         cat,
         fonts.medium,
-        max_size=62,
+        max_size=110,
         min_size=18,
         max_width=w - 220,
         max_lines=1,
@@ -546,7 +551,7 @@ def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: int) -> byt
         line_height=1.0,
         allow_word_break=False,
     )
-    draw_centered_multiline(c, lines_cat, fonts.medium, size_cat, w / 2, 1500, CREAM, line_height=1.0)
+    draw_centered_multiline(c, lines_cat, fonts.medium, size_cat, w / 2, 210, CREAM, line_height=1.0)
 
     # ---------- Тип чая (якорим над линией, чтобы НИКОГДА не залезал на белую полоску)
     y_top = 1425
@@ -612,8 +617,6 @@ def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: int) -> byt
     draw_centered_multiline(c, lines_p, fonts.bold, size_p, w / 2, 470, ORANGE, line_height=1.0)
 
     # ---------- Бренд (крупнее)
-    draw_brand_ci(c, fonts, w, y=160, size=46)
-
     c.save()
     return buff.getvalue()
 
