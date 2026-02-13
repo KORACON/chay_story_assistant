@@ -501,9 +501,9 @@ def make_pdf_products_two_sides(fonts: Fonts, name: str, price: int, hours: int)
     buff, c = pdf_with_background(w, h, ASSET_PRODUCTS_BG)
 
     # FRONT
-    # Бренд переносим выше (зона под верхним краем, как на макете)
-    brand_y = h - 135
-    draw_brand_ci(c, fonts, w, y=brand_y, size=48)
+    # Бренд должен быть на том же уровне и того же размера, что и на обратной стороне.
+    # Ориентируемся на BACK (y=585, size=36).
+    draw_brand_ci(c, fonts, w, y=585, size=36)
 
     size_name, lines_name = fit_text(name, fonts.bold, max_size=72, min_size=34, max_width=w - 140, max_lines=2)
     draw_centered_multiline(c, lines_name, fonts.bold, size_name, w / 2, 355, CREAM, line_height=1.15)
@@ -536,14 +536,14 @@ def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: int) -> byt
     buff, c = pdf_with_background(w, h, ASSET_TEA_BANK_BG)
 
     # ---------- Бренд (ЧАЙНАЯ ИСТОРИЯ) ВВЕРХУ, увеличен
-    draw_brand_ci(c, fonts, w, y=1510, size=92)
+    draw_brand_ci(c, fonts, w, y=1505, size=70)
 
     # ---------- Категория (1 строка, максимально крупно)
     cat = category_from_price(price)
     size_cat, lines_cat = fit_text_in_box(
         cat,
         fonts.medium,
-        max_size=110,
+        max_size=85,
         min_size=18,
         max_width=w - 220,
         max_lines=1,
