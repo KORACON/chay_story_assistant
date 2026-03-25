@@ -131,7 +131,22 @@ def parse_int_number(value) -> Optional[int]:
     return None
 
 
-def category_from_price(price: int) -> str:
+def parse_float_number(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip().replace(",", ".")
+    try:
+        f = float(s)
+        if f != f:  # NaN
+            return None
+        return f
+    except (ValueError, OverflowError):
+        return None
+
+
+def category_from_price(price: float) -> str:
     if price <= 20:
         return "A"
     if price <= 35:
@@ -486,14 +501,16 @@ def draw_brand_ci(c: canvas.Canvas, fonts: Fonts, page_w: int, y: float, size: i
     c.drawString(x, y, seg5)
 
 
-def format_price(price: int) -> str:
-    return f"{price}₽"  # без пробела
+def format_price(price: float) -> str:
+    if price == int(price):
+        return f"{int(price)}₽"
+    return f"{price:.2f}₽"
 
 
 # -------------------------
 # PDF генерация
 # -------------------------
-def make_pdf_products_two_sides(fonts: Fonts, name: str, price: int, hours: int) -> bytes:
+def make_pdf_products_two_sides(fonts: Fonts, name: str, price: float, hours: int) -> bytes:
     # нормализация названия товара
     name = normalize_sentence_case(name)
 
@@ -531,9 +548,29 @@ def make_pdf_products_two_sides(fonts: Fonts, name: str, price: int, hours: int)
     return buff.getvalue()
 
 
-def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: int) -> bytes:
+def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: float) -> bytes:
     w, h = img_size(ASSET_TEA_BANK_BG)
-    buff, c = pdf_with_background(w, h, ASSET_TEA_BANK_BG)
+    # Оранжевая рамка-запас под обрез при печати
+    margin = 40
+    # Расширяем фоновое изображение, добавляя оранжевые поля через Pillow
+    # чтобы цвет рамки был пиксель-в-пиксель как на фоне (#F57044)
+    bg = Image.open(ASSET_TEA_BANK_BG).convert("RGBA")
+    # Композитим на оранжевый фон того же размера, чтобы убить полупрозрачные пиксели
+    bg_flat = Image.new("RGBA", bg.size, (245, 112, 68, 255))
+    bg_flat = Image.alpha_composite(bg_flat, bg)
+    expanded = Image.new("RGBA", (w + margin * 2, h + margin * 2), (245, 112, 68, 255))
+    expanded.paste(bg_flat, (margin, margin))
+    bg_bytes = io.BytesIO()
+    expanded.save(bg_bytes, format="PNG")
+    bg_bytes.seek(0)
+
+    page_w = w + margin * 2
+    page_h = h + margin * 2
+    buff = io.BytesIO()
+    c = canvas.Canvas(buff, pagesize=(page_w, page_h))
+    c.drawImage(ImageReader(bg_bytes), 0, 0, page_w, page_h, mask="auto")
+    # сдвигаем систему координат, чтобы (0,0) = левый нижний угол оригинального фона
+    c.translate(margin, margin)
 
     # ---------- Бренд (ЧАЙНАЯ ИСТОРИЯ) ВВЕРХУ, увеличен
     draw_brand_ci(c, fonts, w, y=1505, size=70)
@@ -622,7 +659,7 @@ def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: int) -> byt
 
 
 
-def make_pdf_tea_box(fonts: Fonts, tea_type: str, name: str, price: int) -> bytes:
+def make_pdf_tea_box(fonts: Fonts, tea_type: str, name: str, price: float) -> bytes:
     w, h = img_size(ASSET_TEA_BOX_BG)
     buff, c = pdf_with_background(w, h, ASSET_TEA_BOX_BG)
 
@@ -821,7 +858,7 @@ def build_xlsx_products_template() -> bytes:
     return out.getvalue()
 
 
-def load_rows_tea(xlsx_bytes: bytes) -> List[Tuple[str, str, int]]:
+def load_rows_tea(xlsx_bytes: bytes) -> List[Tuple[str, str, float]]:
     wb = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
     ws = wb.active
     rows = []
@@ -832,23 +869,23 @@ def load_rows_tea(xlsx_bytes: bytes) -> List[Tuple[str, str, int]]:
 
         tea_type_s = str(tea_type).strip() if tea_type is not None else ""
         name_s = str(name).strip() if name is not None else ""
-        price_i = parse_int_number(price)
+        price_f = parse_float_number(price)
 
         if not tea_type_s:
             raise ValueError("В Excel для чая найдено пустое поле «Тип чая».")
         if not name_s:
             raise ValueError("В Excel для чая найдено пустое поле «Наименование».")
-        if price_i is None or price_i < 0 or price_i > 1_000_000:
+        if price_f is None or price_f < 0 or price_f > 1_000_000:
             raise ValueError("В Excel для чая «Цена» должна быть числом (0…1000000).")
 
-        rows.append((tea_type_s, name_s, price_i))
+        rows.append((tea_type_s, name_s, price_f))
 
     if not rows:
         raise ValueError("Excel пустой: заполни хотя бы одну строку.")
     return rows
 
 
-def load_rows_products(xlsx_bytes: bytes) -> List[Tuple[str, int, int]]:
+def load_rows_products(xlsx_bytes: bytes) -> List[Tuple[str, float, int]]:
     wb = load_workbook(io.BytesIO(xlsx_bytes), data_only=True)
     ws = wb.active
     rows = []
@@ -858,17 +895,17 @@ def load_rows_products(xlsx_bytes: bytes) -> List[Tuple[str, int, int]]:
             continue
 
         name_s = str(name).strip() if name is not None else ""
-        price_i = parse_int_number(price)
+        price_f = parse_float_number(price)
         hours_i = parse_int_number(hours)
 
         if not name_s:
             raise ValueError("В Excel для товаров найдено пустое поле «Название».")
-        if price_i is None or price_i < 0 or price_i > 1_000_000:
+        if price_f is None or price_f < 0 or price_f > 1_000_000:
             raise ValueError("В Excel для товаров «Цена» должна быть числом (0…1000000).")
         if hours_i is None or hours_i < 0 or hours_i > 24 * 365:
             raise ValueError("В Excel для товаров «Срок хранения» должен быть числом часов (0…8760).")
 
-        rows.append((name_s, price_i, hours_i))
+        rows.append((name_s, price_f, hours_i))
 
     if not rows:
         raise ValueError("Excel пустой: заполни хотя бы одну строку.")
