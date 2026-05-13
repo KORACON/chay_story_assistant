@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from PIL import Image
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
@@ -21,7 +21,10 @@ FONTS_DIR = BASE_DIR / "fonts"
 ASSETS_DIR = BASE_DIR / "assets"
 ACCESS_FILE = DATA_DIR / "access.json"
 
-ASSET_PRODUCTS_BG = ASSETS_DIR / "Фон.png"
+ASSET_PRODUCTS_FRONT_BG = ASSETS_DIR / "Ценник (ЕвроВизитка - 300ppi) (1).png"
+ASSET_PRODUCTS_BACK_BG = ASSETS_DIR / "Ценник Бэк (ЕвроВизитка - 300ppi).png"
+# Оставлено для совместимости со старым кодом/импортами: теперь это новый передний фон товаров.
+ASSET_PRODUCTS_BG = ASSET_PRODUCTS_FRONT_BG
 ASSET_TEA_BANK_BG = ASSETS_DIR / "Ценник Банки 70мм x 70мм - 300ppi Фон.png"
 ASSET_TEA_BOX_BG = ASSETS_DIR / "Ценник Коробки 160мм x 20мм - 300ppi Фон.png"
 ASSET_TIPS_FRONT_BG = ASSETS_DIR / "Главная Чаевые Фон.png"
@@ -102,6 +105,9 @@ TEA_CATEGORY_ALIASES = {
     "габа пуэр": "габа",
     "габа красный": "габа",
     "габа улун": "габа",
+    "шу габа": "габа",
+    "шен габа": "габа",
+    "шэн габа": "габа",
 }
 
 
@@ -144,7 +150,8 @@ def register_unbounded_fonts() -> Fonts:
 
 def ensure_assets_exist():
     required = [
-        ASSET_PRODUCTS_BG,
+        ASSET_PRODUCTS_FRONT_BG,
+        ASSET_PRODUCTS_BACK_BG,
         ASSET_TEA_BANK_BG,
         ASSET_TEA_BOX_BG,
         ASSET_TIPS_FRONT_BG,
@@ -313,7 +320,7 @@ def tea_category_key(tea_type: str) -> Optional[str]:
         return TEA_CATEGORY_ALIASES[key]
 
     # Канонические категории и частые варианты ввода
-    if key in {"габа", "gaba"} or key.startswith("габа "):
+    if key in {"габа", "gaba"} or key.startswith("габа ") or "габа" in key.split():
         return "габа"
     if key in {"светлый улун", "светлые улуны", "светлый улуны", "светл улун"}:
         return "светлый улун"
@@ -622,19 +629,55 @@ def draw_brand_ci(
     accent_rgb: Tuple[float, float, float] = ORANGE,
 ):
     """
-    Всегда рисует надпись 'ЧАЙНАЯ ИСТОРИЯ' полностью белым цветом.
-    accent_rgb оставлен в параметрах только для совместимости со старыми вызовами.
+    Рисует фирменную надпись как в исходной логике:
+    буквы «Ч» и «И» — акцентным цветом, остальное — светлым.
+    Используется для ценников товаров, чтобы их цвета текста остались как раньше.
+    """
+    font = fonts.medium
+    seg1, seg2, seg3, seg4, seg5 = "Ч", "АЙНАЯ", " ", "И", "СТОРИЯ"
+    w1 = text_width(font, size, seg1)
+    w2 = text_width(font, size, seg2)
+    w3 = text_width(font, size, seg3)
+    w4 = text_width(font, size, seg4)
+    w5 = text_width(font, size, seg5)
+    total = w1 + w2 + w3 + w4 + w5
+    x = (page_w - total) / 2
+
+    c.setFont(font, size)
+    c.setFillColorRGB(*accent_rgb)
+    c.drawString(x, y, seg1)
+    x += w1
+    c.setFillColorRGB(*CREAM)
+    c.drawString(x, y, seg2)
+    x += w2
+    c.drawString(x, y, seg3)
+    x += w3
+    c.setFillColorRGB(*accent_rgb)
+    c.drawString(x, y, seg4)
+    x += w4
+    c.setFillColorRGB(*CREAM)
+    c.drawString(x, y, seg5)
+
+
+def draw_brand_white(
+    c: canvas.Canvas,
+    fonts: Fonts,
+    page_w: int,
+    y: float,
+    size: int,
+):
+    """
+    Рисует «ЧАЙНАЯ ИСТОРИЯ» полностью белым/светлым цветом.
+    Используется для ценников чая, чтобы категория чая не меняла цвет букв.
     """
     font = fonts.medium
     text = "ЧАЙНАЯ ИСТОРИЯ"
-
     total = text_width(font, size, text)
     x = (page_w - total) / 2
 
     c.setFont(font, size)
     c.setFillColorRGB(*CREAM)
     c.drawString(x, y, text)
-
 
 def format_price(price: float) -> str:
     if price == int(price):
@@ -647,10 +690,16 @@ def format_price(price: float) -> str:
 # -------------------------
 def make_pdf_products_two_sides(fonts: Fonts, name: str, price: float, hours: int) -> bytes:
     name = normalize_sentence_case(name)
-    w, h = img_size(ASSET_PRODUCTS_BG)
-    buff, c = pdf_with_background(w, h, ASSET_PRODUCTS_BG)
 
-    # FRONT
+    front_w, front_h = img_size(ASSET_PRODUCTS_FRONT_BG)
+    back_w, back_h = img_size(ASSET_PRODUCTS_BACK_BG)
+
+    # Основной размер PDF берём с переднего фона.
+    # Если задний фон вдруг отличается по размеру, ReportLab переключит размер второй страницы.
+    buff, c = pdf_with_background(front_w, front_h, ASSET_PRODUCTS_FRONT_BG)
+    w, h = front_w, front_h
+
+    # FRONT — логика, цвета и расположение текстов оставлены как раньше; поменян только фон.
     draw_brand_ci(c, fonts, w, y=585, size=36)
 
     size_name, lines_name = fit_text(name, fonts.bold, max_size=72, min_size=34, max_width=w - 140, max_lines=2)
@@ -669,8 +718,12 @@ def make_pdf_products_two_sides(fonts: Fonts, name: str, price: float, hours: in
 
     c.showPage()
 
-    # BACK
-    c.drawImage(ImageReader(str(ASSET_PRODUCTS_BG)), 0, 0, w, h, mask="auto")
+    # BACK — логика, цвета и расположение текстов оставлены как раньше; поменян только фон.
+    if (back_w, back_h) != (w, h):
+        c.setPageSize((back_w, back_h))
+        w, h = back_w, back_h
+
+    c.drawImage(ImageReader(str(ASSET_PRODUCTS_BACK_BG)), 0, 0, w, h, mask="auto")
     draw_brand_ci(c, fonts, w, y=585, size=36)
 
     title = "Срок хранения"
@@ -690,7 +743,6 @@ def make_pdf_products_two_sides(fonts: Fonts, name: str, price: float, hours: in
 
     c.save()
     return buff.getvalue()
-
 
 def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: float) -> bytes:
     bg_path = tea_background_path(tea_type, "bank")
@@ -740,7 +792,7 @@ def make_pdf_tea_bank(fonts: Fonts, tea_type: str, name: str, price: float) -> b
     c.translate(margin, margin)
 
     # ---------- Бренд
-    draw_brand_ci(c, fonts, w, y=y(1505), size=fs(70), accent_rgb=accent_rgb)
+    draw_brand_white(c, fonts, w, y=y(1505), size=fs(70))
 
     # ---------- Категория цены
     cat = category_from_price(price)
@@ -1052,26 +1104,83 @@ def build_xlsx_tea_template() -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Чай"
+
     headers = ["Тип чая", "Наименование", "Цена (число)"]
     ws.append(headers)
 
-    header_font = Font(bold=True)
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="231F20")
+    thin_side = Side(style="thin", color="C1BAB1")
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
     for col in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=col)
         cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 42
-    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["E"].width = 22
+    ws.column_dimensions["F"].width = 62
 
     for _ in range(2, 202):
         ws.append(["", "", ""])
 
+    # Подсказка справа от таблицы — сотрудники видят её сразу,
+    # но она не мешает чтению данных из колонок A:C.
+    hint_title_fill = PatternFill("solid", fgColor="F6763C")
+    hint_header_fill = PatternFill("solid", fgColor="231F20")
+    hint_light_fill = PatternFill("solid", fgColor="F4EFE8")
+    hint_font = Font(color="231F20")
+    hint_bold_font = Font(bold=True, color="231F20")
+    hint_white_bold = Font(bold=True, color="FFFFFF")
+
+    ws.merge_cells("E1:F1")
+    title_cell = ws["E1"]
+    title_cell.value = "ПОДСКАЗКА ПО ЗАПОЛНЕНИЮ ЧАЙНЫХ ЦЕННИКОВ"
+    title_cell.font = hint_white_bold
+    title_cell.fill = hint_title_fill
+    title_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    hint_rows = [
+        ("Как заполнять", "В колонке «Тип чая» пишите один из вариантов ниже. Бот сам подберёт нужный цвет рамки и картинки."),
+        ("Темные улуны", "Темный Улун, ФХДЦ, ДХП"),
+        ("Светлые улуны", "Светлый Улун, Те Гуань Инь"),
+        ("Красный", "Красный"),
+        ("Пуэры", "Шу Пуэр, Лао Шен Пуэр, Шен Пуэр"),
+        ("Жёлтый", "Жёлтый"),
+        ("Зеленый", "Зеленый"),
+        ("Габа", "Пишите просто «Габа». Если чай называется шу габа или шен габа — всё равно пишите только «Габа»."),
+        ("Белый", "Белый"),
+        ("Цена", "Пишите только число без букв и без ₽. Можно через точку или запятую: 22, 22.50 или 22,50."),
+    ]
+
+    for row_idx, (label, text) in enumerate(hint_rows, start=2):
+        label_cell = ws.cell(row=row_idx, column=5)
+        text_cell = ws.cell(row=row_idx, column=6)
+        label_cell.value = label
+        text_cell.value = text
+
+        label_cell.font = hint_white_bold if row_idx == 2 else hint_bold_font
+        text_cell.font = hint_white_bold if row_idx == 2 else hint_font
+        label_cell.fill = hint_header_fill if row_idx == 2 else hint_light_fill
+        text_cell.fill = hint_header_fill if row_idx == 2 else hint_light_fill
+        label_cell.border = thin_border
+        text_cell.border = thin_border
+        label_cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        text_cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+    for row_idx in range(1, 12):
+        ws.row_dimensions[row_idx].height = 34 if row_idx != 1 else 42
+
+    ws.freeze_panes = "A2"
+
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
-
 
 def build_xlsx_products_template() -> bytes:
     wb = Workbook()

@@ -2,8 +2,8 @@ import io
 import re
 import zipfile
 
-from aiogram import Router, F
-from aiogram.filters import CommandStart, Command
+from aiogram import F, Router
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -30,18 +30,32 @@ router = Router()
 WELCOME_TEXT = (
     "Привет! Я Чайный Ассистент ☕️\n\n"
     "Я умею делать аккуратные PDF-карточки:\n"
-    "• 🧾 Ценники для чая (Excel → ZIP с PDF)\n"
-    "• 📦Ценники для товаров (Excel → ZIP с двухсторонними PDF)\n"
-    "• 💸 Карточки для чаевых (пошаговый ввод → PDF с QR)\n\n"
-    "Выбирай действие кнопками ниже 👇"
+    "• Ценники для чая (Excel → ZIP с PDF)\n"
+    "• Ценники для товаров (Excel → ZIP с двухсторонними PDF)\n"
+    "• Карточки для чаевых (пошаговый ввод → PDF с QR)\n\n"
+    "Выбирай действие кнопками ниже "
 )
 
 DONE_TEXT = (
-    "Готово. Что делаем дальше ?\n"
-    "• 🧾 Ценники для чая (Excel → ZIP с PDF)\n"
-    "• 📦Ценники для товаров (Excel → ZIP с двухсторонними PDF)\n"
-    "• 💸 Карточки для чаевых (пошаговый ввод → PDF с QR)\n\n"
-    "Выбирай действие кнопками ниже 👇"
+    "Готово. Что делаем дальше?\n"
+    "• Ценники для чая (Excel → ZIP с PDF)\n"
+    "• Ценники для товаров (Excel → ZIP с двухсторонними PDF)\n"
+    "• Карточки для чаевых (пошаговый ввод → PDF с QR)\n\n"
+    "Выбирай действие кнопками ниже "
+)
+
+TEA_FILLING_HINT = (
+    "📌 Как правильно заполнить колонку «Тип чая»:\n\n"
+    "• Темные улуны: Темный Улун, ФХДЦ, ДХП\n"
+    "• Светлые улуны: Светлый Улун, Те Гуань Инь\n"
+    "• Красный: Красный\n"
+    "• Пуэры: Шу Пуэр, Лао Шен Пуэр, Шен Пуэр\n"
+    "• Жёлтый: Жёлтый\n"
+    "• Зеленый: Зеленый\n"
+    "• Габа: пишите просто Габа. Если чай называется шу габа или шен габа — всё равно пишите только Габа.\n"
+    "• Белый: Белый\n\n"
+    "💰 Цену пишите только числом, без букв и без ₽.\n"
+    "Можно через точку или запятую: 22, 22.50 или 22,50."
 )
 
 
@@ -58,9 +72,9 @@ class WaitFilesFSM(StatesGroup):
 
 def main_menu_kb():
     kb = InlineKeyboardBuilder()
-    kb.button(text="🧾 Ценники: Чай", callback_data="menu:tea")
-    kb.button(text="📦 Ценники: Товары", callback_data="menu:products")
-    kb.button(text="💸 Карточка: Чаевые", callback_data="menu:tips")
+    kb.button(text=" Ценники: Чай", callback_data="menu:tea")
+    kb.button(text=" Ценники: Товары", callback_data="menu:products")
+    kb.button(text=" Карточка: Чаевые", callback_data="menu:tips")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -87,6 +101,7 @@ def is_xlsx(message: Message) -> bool:
 async def cmd_start(message: Message, state: FSMContext, access: AccessManager):
     if not access.is_allowed(message.from_user.id):
         return await deny(message)
+
     await state.clear()
     await message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
 
@@ -96,6 +111,7 @@ async def cb_cancel(query: CallbackQuery, state: FSMContext, access: AccessManag
     if not access.is_allowed(query.from_user.id):
         await query.answer("Нет доступа", show_alert=True)
         return
+
     await state.clear()
     await query.message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
     await query.answer()
@@ -113,6 +129,7 @@ async def admin_add_user(message: Message, access: AccessManager):
     if len(parts) != 2 or not parts[1].isdigit():
         await message.answer("Использование: /add_user 123456789")
         return
+
     uid = int(parts[1])
     access.add_user(uid)
     await message.answer(f"✅ Добавил доступ пользователю {uid}.")
@@ -127,15 +144,17 @@ async def admin_del_user(message: Message, access: AccessManager):
     if len(parts) != 2 or not parts[1].isdigit():
         await message.answer("Использование: /del_user 123456789")
         return
+
     uid = int(parts[1])
     access.del_user(uid)
-    await message.answer(f"🗑️ Убрал доступ пользователю {uid}.")
+    await message.answer(f"️ Убрал доступ пользователю {uid}.")
 
 
 @router.message(Command("list_users"))
 async def admin_list_users(message: Message, access: AccessManager):
     if not access.is_admin(message.from_user.id):
         return await deny(message)
+
     users = access.list_users()
     await message.answer("Разрешённые пользователи:\n" + ("\n".join(map(str, users)) if users else "Список пуст."))
 
@@ -151,13 +170,13 @@ async def cb_tea(query: CallbackQuery, state: FSMContext, access: AccessManager)
 
     xlsx = build_xlsx_tea_template()
     await state.set_state(WaitFilesFSM.wait_tea_xlsx)
-
     await query.message.answer(
-        "🧾 Ценники: Чай\n\n"
+        " Ценники: Чай\n\n"
         "Заполни Excel и отправь обратно.\n"
         "В ответ пришлю ZIP, внутри две папки:\n"
         "• Ценники для банок\n"
-        "• Ценники для коробок"
+        "• Ценники для коробок\n\n"
+        f"{TEA_FILLING_HINT}"
     )
     await query.message.answer_document(BufferedInputFile(xlsx, filename="tea_template.xlsx"))
     await query.answer()
@@ -183,8 +202,8 @@ async def tea_receive_xlsx(message: Message, state: FSMContext, access: AccessMa
         return
 
     await message.answer(f"⏳ Генерирую PDF… строк: {len(rows)}")
-    base_names = unique_names([safe_filename(r[1]) for r in rows])
 
+    base_names = unique_names([safe_filename(r[1]) for r in rows])
     out_zip = io.BytesIO()
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for (tea_type, name, price), fname in zip(rows, base_names):
@@ -193,7 +212,6 @@ async def tea_receive_xlsx(message: Message, state: FSMContext, access: AccessMa
 
     out_zip.seek(0)
     await message.answer_document(BufferedInputFile(out_zip.read(), filename="Ценники Чай.zip"))
-
     await state.clear()
     await message.answer(DONE_TEXT, reply_markup=main_menu_kb())
 
@@ -209,9 +227,8 @@ async def cb_products(query: CallbackQuery, state: FSMContext, access: AccessMan
 
     xlsx = build_xlsx_products_template()
     await state.set_state(WaitFilesFSM.wait_products_xlsx)
-
     await query.message.answer(
-        "📦 Ценники: Товары\n\n"
+        " Ценники: Товары\n\n"
         "Заполни Excel и отправь обратно.\n"
         "В ответ пришлю ZIP, каждый PDF будет 2 страницы (перед/зад)."
     )
@@ -239,8 +256,8 @@ async def products_receive_xlsx(message: Message, state: FSMContext, access: Acc
         return
 
     await message.answer(f"⏳ Генерирую двухсторонние PDF… строк: {len(rows)}")
-    base_names = unique_names([safe_filename(r[0]) for r in rows])
 
+    base_names = unique_names([safe_filename(r[0]) for r in rows])
     out_zip = io.BytesIO()
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         for (name, price, hours), fname in zip(rows, base_names):
@@ -248,7 +265,6 @@ async def products_receive_xlsx(message: Message, state: FSMContext, access: Acc
 
     out_zip.seek(0)
     await message.answer_document(BufferedInputFile(out_zip.read(), filename="Ценники Товары.zip"))
-
     await state.clear()
     await message.answer(DONE_TEXT, reply_markup=main_menu_kb())
 
@@ -264,7 +280,7 @@ async def cb_tips(query: CallbackQuery, state: FSMContext, access: AccessManager
 
     await state.clear()
     await state.set_state(TipsFSM.name)
-    await query.message.answer("💸 Введи имя (как на карточке):", reply_markup=back_cancel_kb("tips:back_name"))
+    await query.message.answer(" Введи имя (как на карточке):", reply_markup=back_cancel_kb("tips:back_name"))
     await query.answer()
 
 
@@ -273,8 +289,9 @@ async def tips_back_name(query: CallbackQuery, state: FSMContext, access: Access
     if not access.is_allowed(query.from_user.id):
         await query.answer("Нет доступа", show_alert=True)
         return
+
     await state.set_state(TipsFSM.name)
-    await query.message.answer("💸 Введи имя (как на карточке):", reply_markup=back_cancel_kb("tips:back_name"))
+    await query.message.answer(" Введи имя (как на карточке):", reply_markup=back_cancel_kb("tips:back_name"))
     await query.answer()
 
 
@@ -283,8 +300,9 @@ async def tips_back_goal(query: CallbackQuery, state: FSMContext, access: Access
     if not access.is_allowed(query.from_user.id):
         await query.answer("Нет доступа", show_alert=True)
         return
+
     await state.set_state(TipsFSM.goal)
-    await query.message.answer("🎯 Введи цель (на что копишь):", reply_markup=back_cancel_kb("tips:back_name"))
+    await query.message.answer(" Введи цель (на что копишь):", reply_markup=back_cancel_kb("tips:back_name"))
     await query.answer()
 
 
@@ -293,8 +311,9 @@ async def tips_back_link(query: CallbackQuery, state: FSMContext, access: Access
     if not access.is_allowed(query.from_user.id):
         await query.answer("Нет доступа", show_alert=True)
         return
+
     await state.set_state(TipsFSM.link)
-    await query.message.answer("🔗 Вставь ссылку Netmonet (для QR):", reply_markup=back_cancel_kb("tips:back_goal"))
+    await query.message.answer(" Вставь ссылку Netmonet (для QR):", reply_markup=back_cancel_kb("tips:back_goal"))
     await query.answer()
 
 
@@ -310,7 +329,7 @@ async def tips_name(message: Message, state: FSMContext, access: AccessManager):
 
     await state.update_data(tips_name=text)
     await state.set_state(TipsFSM.goal)
-    await message.answer("🎯 Введи цель (на что копишь):", reply_markup=back_cancel_kb("tips:back_name"))
+    await message.answer(" Введи цель (на что копишь):", reply_markup=back_cancel_kb("tips:back_name"))
 
 
 @router.message(TipsFSM.goal)
@@ -325,7 +344,7 @@ async def tips_goal(message: Message, state: FSMContext, access: AccessManager):
 
     await state.update_data(tips_goal=text)
     await state.set_state(TipsFSM.link)
-    await message.answer("🔗 Вставь ссылку Netmonet (для QR):", reply_markup=back_cancel_kb("tips:back_goal"))
+    await message.answer(" Вставь ссылку Netmonet (для QR):", reply_markup=back_cancel_kb("tips:back_goal"))
 
 
 @router.message(TipsFSM.link)
@@ -337,6 +356,7 @@ async def tips_link(message: Message, state: FSMContext, access: AccessManager, 
     if not link or len(link) > 300:
         await message.answer("Ссылка выглядит странно. Вставь корректную ссылку Netmonet:", reply_markup=back_cancel_kb("tips:back_link"))
         return
+
     if not re.match(r"^https?://", link, flags=re.I):
         await message.answer("Ссылка должна начинаться с http:// или https://", reply_markup=back_cancel_kb("tips:back_link"))
         return
@@ -346,10 +366,9 @@ async def tips_link(message: Message, state: FSMContext, access: AccessManager, 
     goal = data.get("tips_goal", "Цель")
 
     await message.answer("⏳ Генерирую карточку чаевых…")
-    pdf_bytes = make_pdf_tips_two_sides(fonts, person_name, goal, link)
 
+    pdf_bytes = make_pdf_tips_two_sides(fonts, person_name, goal, link)
     filename = safe_filename(f"Чаевые_{person_name}") + ".pdf"
     await message.answer_document(BufferedInputFile(pdf_bytes, filename=filename))
-
     await state.clear()
     await message.answer(DONE_TEXT, reply_markup=main_menu_kb())
